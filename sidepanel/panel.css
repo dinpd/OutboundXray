@@ -72,6 +72,8 @@ button { font: inherit; color: inherit; }
 .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .status.on .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); animation: pulse 2s infinite; }
 .status.on { color: var(--ok); }
+.status.bg .dot { background: var(--accent); }
+.status.bg { color: var(--accent); }
 @keyframes pulse { 50% { box-shadow: 0 0 0 5px transparent; } }
 
 .site {
@@ -277,3 +279,9 @@ table.kv tr.hit td { background: var(--high-bg); }
 }
 .spacer { flex: 1; }
 .local { color: var(--muted); }
+
+.foot { flex-wrap: wrap; row-gap: 6px; }
+.auto-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+.auto-toggle input { accent-color: var(--accent); margin: 0; }
+.passive-note { margin: 0 0 10px; }
+.passive-note .link { padding: 0; font-size: inherit; }

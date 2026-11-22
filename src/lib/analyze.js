@@ -27,6 +27,14 @@ function capped(text) {
     : { text, truncated: false };
 }
 
+// Joins byte chunks (request bodies arrive in parts) into one Uint8Array.
+export function concatBytes(parts) {
+  const bytes = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let offset = 0;
+  for (const p of parts) { bytes.set(p, offset); offset += p.length; }
+  return bytes;
+}
+
 const isGzip = (b) => b[0] === 0x1f && b[1] === 0x8b;
 const isZlib = (b) => b[0] === 0x78 && [0x01, 0x5e, 0x9c, 0xda].includes(b[1]);
 
@@ -71,10 +79,7 @@ async function maybeBase64Compressed(text) {
 export async function decodeBody(postData, postDataEntries) {
   if (postDataEntries?.length) {
     const parts = postDataEntries.map((e) => base64ToBytes(e.bytes || ''));
-    const bytes = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-    let offset = 0;
-    for (const p of parts) { bytes.set(p, offset); offset += p.length; }
-    return decodeBytes(bytes);
+    return decodeBytes(concatBytes(parts));
   }
   if (typeof postData === 'string' && postData.length) {
     return { ...(await maybeBase64Compressed(postData)), size: postData.length };
@@ -242,6 +247,17 @@ export async function buildNeedles(value) {
     needles.push({ text: md5Hex(v), hash: 'MD5' });
   }
   return needles;
+}
+
+export const MAX_TYPED = 30;
+export const MAX_INTERACTIONS = 200;
+
+// Turns a content-script 'typed' message into a typed-value record, or null
+// when it is too short/long or already known (`known` = the tab's typed list).
+export async function newTypedValue(msg, known) {
+  const value = String(msg.value || '').trim();
+  if (value.length < 4 || value.length > 200 || known.some((t) => t.value === value)) return null;
+  return { value, field: String(msg.field || 'a text field').slice(0, 60), at: Date.now(), needles: await buildNeedles(value) };
 }
 
 // Checks a request's haystack against values you typed. A match is flagged

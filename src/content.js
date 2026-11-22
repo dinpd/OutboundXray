@@ -2,7 +2,8 @@
 // you when that text (or a hashed copy of it) leaves the page.
 //
 // Privacy rules enforced here:
-// - Does nothing unless OutboundXray is actively watching this tab.
+// - Does nothing unless OutboundXray is watching this tab: a scan you started,
+//   or background watch, if you turned it on.
 // - Never reads password, one-time-code or payment-card fields.
 // - Values go only to OutboundXray's own service worker, in memory, and are dropped
 //   when watching stops. Nothing is written to disk or sent anywhere else.

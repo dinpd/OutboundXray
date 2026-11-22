@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "OutboundXray",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "An X-ray of what leaves your browser: see, in plain language, what the page you're on sends about you, and to whom.",
   "minimum_chrome_version": "125",
-  "permissions": ["debugger", "sidePanel", "storage"],
+  "permissions": ["debugger", "sidePanel", "storage", "webRequest", "notifications"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background.js",

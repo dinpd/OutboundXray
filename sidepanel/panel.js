@@ -118,18 +118,20 @@ function hostname(url) {
 
 function render() {
   const watching = !!state?.watching;
+  const passive = !!state?.passive;
   const entries = state?.entries || [];
   const summary = summarize({ pageUrl: tabUrl, entries });
 
-  $('#status').className = `status${watching ? ' on' : ''}`;
-  $('#status').innerHTML = `<span class="dot"></span>${watching ? 'Scanning' : 'Not scanning'}`;
+  $('#status').className = `status${watching ? ' on' : (passive ? ' bg' : '')}`;
+  $('#status').innerHTML = `<span class="dot"></span>${watching ? 'Scanning' : (passive ? 'Background watch' : 'Not scanning')}`;
+  $('#autoToggle').checked = !!state?.autoWatch;
 
   const restricted = RESTRICTED.test(tabUrl);
   $('#site').innerHTML = `
     <span class="host" title="${esc(tabUrl)}">${esc(hostname(tabUrl) || 'No page')}</span>
     ${watching
       ? '<button class="btn" data-act="stop">Stop</button>'
-      : (entries.length && !restricted ? '<button class="btn primary" data-act="start">Scan again</button>' : '')}`;
+      : (entries.length && !restricted ? `<button class="btn primary" data-act="start">${passive ? 'Full scan' : 'Scan again'}</button>` : '')}`;
 
   $('#detailsCount').textContent = entries.length ? `(${entries.length})` : '';
   for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.view === ui.view));
@@ -156,7 +158,15 @@ function renderIntro(restricted) {
     <button class="btn primary big" data-act="start">Start scanning (reloads the page)</button>
     <div class="note"><strong>About the bar at the top of Chrome:</strong> while scanning, Chrome shows “OutboundXray started debugging this browser”. That is expected; it is how OutboundXray can read the data. Everything stays on your computer. Click <em>Stop</em> (or <em>Cancel</em> on that bar) to end the scan.</div>
     <div class="center"><button class="link" data-act="start-noreload">Start without reloading</button></div>
+    ${state?.passive
+      ? '<div class="note">Background watch is on, but no other company has received data from this page yet. Reload the page to check it from the start.</div>'
+      : '<div class="note">Turn on <strong>Background watch</strong> (bottom of this panel) to check every tab automatically: the toolbar icon shows how many companies each page talks to, and you get a notification if personal information leaves a page.</div>'}
   </div>`;
+}
+
+// Background watch sees less than a full scan; say so above its results.
+function renderPassiveNote() {
+  return `<div class="note passive-note"><strong>Background watch.</strong> A lighter view of this page: requests to other companies, without cookies, live connections or full request details. Run a <button class="link" data-act="start">full scan</button> to see everything.</div>`;
 }
 
 function renderSummary(summary, watching, restricted) {
@@ -164,15 +174,18 @@ function renderSummary(summary, watching, restricted) {
   if (!watching && !entries.length) return renderMessages() + renderIntro(restricted);
 
   const level = summary.verdict.level;
-  const typedNote = watching && state.typedFields?.length
+  const typedNote = (watching || state.passive) && state.typedFields?.length
     ? ` · checking ${plural(state.typedFields.length, 'thing')} you typed`
     : '';
 
-  let html = renderMessages() + `
+  const stats = state.passive
+    ? `${plural(summary.totals.thirdPartyRequests, 'request')} to other companies`
+    : `${summary.totals.requests} pieces of data sent · ${summary.totals.thirdPartyRequests} to other companies`;
+  let html = renderMessages() + (state.passive ? renderPassiveNote() : '') + `
     <div class="card">
       <span class="verdict lvl-${level}">${esc(summary.verdict.text)}</span>
       <p class="headline">${esc(summary.headline)}</p>
-      <div class="stats">${summary.totals.requests} pieces of data sent · ${summary.totals.thirdPartyRequests} to other companies${typedNote}</div>
+      <div class="stats">${stats}${typedNote}</div>
     </div>`;
 
   if (summary.alerts.length) {
@@ -384,6 +397,7 @@ for (const [id, key] of [['#fThird', 'third'], ['#fData', 'data'], ['#fFlagged',
   });
 }
 $('#exportBtn').addEventListener('click', () => post({ kind: 'export' }));
+$('#autoToggle').addEventListener('change', (ev) => post({ kind: 'setAuto', on: ev.target.checked }));
 $('#clearBtn').addEventListener('click', () => { details.clear(); ui.openRows.clear(); post({ kind: 'clear' }); });
 
 init();

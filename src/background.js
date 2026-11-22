@@ -5,22 +5,25 @@
 // "OutboundXray started debugging this browser" bar: it is the only extension API
 // that sees full request bodies, WebSocket messages and requests from
 // cross-site iframes. Everything stays in this worker's memory.
+//
+// Background watch (src/autowatch.js) is the optional always-on, lighter view of
+// every other tab, built from chrome.webRequest instead.
 
 import { classify } from './lib/trackers.js';
+import { createAutoWatch, tabIdOfNotification } from './autowatch.js';
 import { hostOf } from './lib/domains.js';
 import { summarize } from './lib/summary.js';
 import {
-  analyzeRequest, buildHaystack, buildNeedles, decodeBody, decodeBytes,
-  extractFields, matchTyped, mergeTypedFindings,
+  analyzeRequest, buildHaystack, decodeBody, decodeBytes,
+  extractFields, matchTyped, mergeTypedFindings, newTypedValue, MAX_TYPED, MAX_INTERACTIONS,
 } from './lib/analyze.js';
+import { clipUrl } from './lib/passive.js';
 
 const DEBUG = false; // flip to true and filter the worker console by [OutboundXray]
 const log = (...args) => { if (DEBUG) console.log('[OutboundXray]', ...args); };
 
 const PROTOCOL_VERSION = '1.3';
 const MAX_ENTRIES = 1000;
-const MAX_TYPED = 30;
-const MAX_INTERACTIONS = 200;
 const MAX_WS_FRAMES = 50;
 const MAX_PENDING_EXTRA = 500;
 const PUSH_DELAY_MS = 300;
@@ -53,7 +56,6 @@ function newTabState(tabId, pageUrl = '') {
     dropped: 0,
     notice: null,
     error: null,
-    pushTimer: null,
   };
 }
 
@@ -290,6 +292,7 @@ function friendlyError(err) {
 }
 
 async function startWatching(tabId, { reload = true } = {}) {
+  auto.handOver(tabId);
   const tab = await chrome.tabs.get(tabId);
   const prev = tabs.get(tabId);
   const st = newTabState(tabId, tab.url);
@@ -321,7 +324,7 @@ function stopLocally(st, notice) {
   st.typed = [];          // forget typed values as soon as watching stops
   st.interactions = [];
   st.notice = notice || null;
-  notifyContent(st.tabId, false);
+  notifyContent(st.tabId, auto.isEnabled()); // background watch keeps listening if it's on
   saveWatchedTabs();
   markDirty(st);
 }
@@ -365,9 +368,8 @@ async function restoreWatchedTabs() {
 async function onTyped(tabId, msg) {
   const st = tabs.get(tabId);
   if (!st?.watching) return;
-  const value = String(msg.value || '').trim();
-  if (value.length < 4 || value.length > 200 || st.typed.some((t) => t.value === value)) return;
-  const typed = { value, field: String(msg.field || 'a text field').slice(0, 60), at: Date.now(), needles: await buildNeedles(value) };
+  const typed = await newTypedValue(msg, st.typed);
+  if (!typed) return;
   st.typed.push(typed);
   if (st.typed.length > MAX_TYPED) st.typed.shift();
   // Check requests that already left: keystroke recorders often send before we hear about the value.
@@ -381,15 +383,18 @@ async function onTyped(tabId, msg) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const tabId = sender.tab?.id;
   if (tabId == null) return;
+  const st = tabs.get(tabId);
   if (msg?.kind === 'hello') {
-    sendResponse({ watched: !!tabs.get(tabId)?.watching });
+    auto.ready.then(() => sendResponse({ watched: !!st?.watching || auto.isEnabled() }));
+    return true; // answered asynchronously
   } else if (msg?.kind === 'typed') {
-    onTyped(tabId, msg);
+    if (st?.watching) onTyped(tabId, msg); else auto.onTyped(tabId, msg);
   } else if (msg?.kind === 'interaction') {
-    const st = tabs.get(tabId);
     if (st?.watching) {
       st.interactions.push(Date.now());
       if (st.interactions.length > MAX_INTERACTIONS) st.interactions.shift();
+    } else {
+      auto.onInteraction(tabId);
     }
   }
 });
@@ -400,7 +405,7 @@ function lightEntry(e) {
   return {
     id: e.id,
     ts: e.ts,
-    url: e.url.length > 400 ? `${e.url.slice(0, 400)}…` : e.url,
+    url: clipUrl(e.url),
     method: e.method,
     type: e.type,
     host: e.host,
@@ -434,29 +439,50 @@ function lightState(tabId) {
   };
 }
 
+// Background watch keeps no bodies or headers; fields come from the address only.
+function passiveDetail(e) {
+  return { ...e, headers: {}, cookies: [], body: null, fields: extractFields(e.url, '').slice(0, 300) };
+}
+
 function fullEntry(e) {
   const { haystack, key, analyzeTimer, ...rest } = e;
   return { ...rest, findings: [...e.findings, ...e.typedFindings], fields: extractFields(e.url, e.body?.text).slice(0, 300) };
 }
 
+// The panel shows a tab's scan when it has one (running, or finished with
+// results), and otherwise the background-watch view when that is on.
+async function stateOf(tabId) {
+  const st = tabs.get(tabId);
+  const hasScan = !!st && (st.watching || st.entries.length || st.error || st.notice);
+  const state = (!hasScan && await auto.stateFor(tabId)) || lightState(tabId);
+  return { ...state, autoWatch: auto.isEnabled() };
+}
+
+const pushTimers = new Map(); // tabId -> pending push
+function pushTab(tabId) {
+  if (pushTimers.has(tabId)) return;
+  pushTimers.set(tabId, setTimeout(async () => {
+    pushTimers.delete(tabId);
+    const state = await stateOf(tabId);
+    for (const sub of panels) if (sub.tabId === tabId) sub.port.postMessage({ kind: 'state', tabId, state });
+    updateBadge(tabId, state);
+  }, PUSH_DELAY_MS));
+}
+
 function markDirty(st) {
-  if (st.pushTimer) return;
-  st.pushTimer = setTimeout(() => {
-    st.pushTimer = null;
-    const state = lightState(st.tabId);
-    for (const sub of panels) if (sub.tabId === st.tabId) sub.port.postMessage({ kind: 'state', tabId: st.tabId, state });
-    updateBadge(st.tabId, state);
-  }, PUSH_DELAY_MS);
+  pushTab(st.tabId);
 }
 
 const BADGE_COLORS = { high: '#d93025', medium: '#e37400', low: '#5f6368', none: '#5f6368' };
 
+// Scanning: number of other companies, coloured by the verdict. Background
+// watch: the same, but no badge until some other company has received data.
 function updateBadge(tabId, state) {
-  if (!state.watching) {
+  const summary = (state.watching || state.passive) ? summarize(state) : null;
+  if (!summary || (state.passive && !summary.totals.companies)) {
     chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
     return;
   }
-  const summary = summarize(state);
   chrome.action.setBadgeText({ tabId, text: String(summary.totals.companies) }).catch(() => {});
   chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_COLORS[summary.verdict.level] }).catch(() => {});
 }
@@ -471,7 +497,10 @@ chrome.runtime.onConnect.addListener((port) => {
     switch (msg.kind) {
       case 'subscribe':
         sub.tabId = msg.tabId;
-        port.postMessage({ kind: 'state', tabId: msg.tabId, state: lightState(msg.tabId) });
+        port.postMessage({ kind: 'state', tabId: msg.tabId, state: await stateOf(msg.tabId) });
+        break;
+      case 'setAuto':
+        await setAutoWatch(!!msg.on);
         break;
       case 'start':
         await startWatching(msg.tabId, { reload: msg.reload !== false });
@@ -480,19 +509,25 @@ chrome.runtime.onConnect.addListener((port) => {
         await stopWatching(msg.tabId);
         break;
       case 'clear':
-        if (st) { resetPage(st, st.pageUrl); markDirty(st); }
+        if (st) { resetPage(st, st.pageUrl); markDirty(st); } else { auto.forget(msg.tabId); pushTab(msg.tabId); }
         break;
       case 'detail': {
         const entry = st?.entries.find((e) => e.id === msg.id);
-        port.postMessage({ kind: 'detail', id: msg.id, entry: entry ? fullEntry(entry) : null });
+        const passive = !entry && (await stateOf(msg.tabId)).passive
+          ? (await auto.stateFor(msg.tabId))?.entries.find((e) => e.id === msg.id)
+          : null;
+        port.postMessage({ kind: 'detail', id: msg.id, entry: entry ? fullEntry(entry) : (passive ? passiveDetail(passive) : null) });
         break;
       }
-      case 'export':
+      case 'export': {
+        const state = await stateOf(msg.tabId);
+        const requests = state.passive ? state.entries.map(passiveDetail) : (st?.entries.map(fullEntry) || []);
         port.postMessage({
           kind: 'export',
-          data: st ? { exportedAt: new Date().toISOString(), pageUrl: st.pageUrl, requests: st.entries.map(fullEntry) } : null,
+          data: requests.length || st ? { exportedAt: new Date().toISOString(), pageUrl: state.pageUrl, backgroundWatch: !!state.passive, requests } : null,
         });
         break;
+      }
     }
   });
 });
@@ -501,6 +536,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabs.delete(tabId);
+  auto.forget(tabId);
   saveWatchedTabs();
 });
 
@@ -513,5 +549,44 @@ chrome.runtime.onStartup.addListener(() => {
 
 restoreWatchedTabs().catch((e) => log('restore failed', e));
 
+// ------------------------------------------------------- background watch
+
+const auto = createAutoWatch({
+  isScanning: (tabId) => !!tabs.get(tabId)?.watching,
+  onChange: pushTab,
+  log,
+});
+
+async function setAutoWatch(on) {
+  await auto.setEnabled(on);
+  // Tell every page's content script whether to report what you type.
+  for (const tab of await chrome.tabs.query({})) notifyContent(tab.id, !!tabs.get(tab.id)?.watching || on);
+  for (const sub of panels) if (sub.tabId != null) pushTab(sub.tabId);
+}
+
+// Registered at the top level so Chrome can wake this worker for it.
+chrome.webRequest.onBeforeRequest.addListener((details) => {
+  // A finished scan's results stay on screen until the tab moves to a new page.
+  if (details.type === 'main_frame' && details.tabId >= 0 && auto.isEnabled() && tabs.get(details.tabId) && !tabs.get(details.tabId).watching) {
+    tabs.delete(details.tabId);
+  }
+  auto.onBeforeRequest(details).catch((e) => log('[OX-AUTO] request error', e.message));
+}, { urls: ['<all_urls>'] }, ['requestBody']);
+
+// Backstop for page changes that send no main_frame request (back/forward cache,
+// address-bar preloading).
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.url) auto.onTabUrl(tabId, info.url).catch((e) => log('[OX-AUTO] tab url error', e.message));
+});
+
+chrome.notifications.onClicked.addListener(async (id) => {
+  const tabId = tabIdOfNotification(id);
+  chrome.notifications.clear(id).catch(() => {});
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return;
+  await chrome.tabs.update(tabId, { active: true }).catch(() => {});
+  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+});
+
 // Handle for debugging from the worker console and for automated tests.
-globalThis.outboundXray = { tabs, startWatching, stopWatching, lightState };
+globalThis.outboundXray = { tabs, startWatching, stopWatching, lightState, stateOf, auto };
