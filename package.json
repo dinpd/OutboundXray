@@ -1,0 +1,13 @@
+{
+  "name": "outboundxray",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Chrome extension: see, in plain language, what the page you're on sends about you, and to whom.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "icons": "python3 scripts/make-icons.py",
+    "package": "rm -f outboundxray.zip && zip -r outboundxray.zip manifest.json src sidepanel icons -x '*.DS_Store'"
+  },
+  "license": "MIT"
+}

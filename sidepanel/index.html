@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutboundXray</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="../icons/icon32.png" alt="" width="20" height="20">
+      <span>OutboundXray</span>
+    </div>
+    <div id="status" class="status"></div>
+  </header>
+
+  <section id="site" class="site"></section>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="summary" aria-selected="true">Summary</button>
+    <button role="tab" data-view="details" aria-selected="false">Details <span id="detailsCount" class="count"></span></button>
+  </nav>
+
+  <main>
+    <section id="summaryView"></section>
+
+    <section id="detailsView" hidden>
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Filter by address, company or data…" autocomplete="off">
+        <div class="chips">
+          <label class="chip"><input type="checkbox" id="fThird"> Other companies only</label>
+          <label class="chip"><input type="checkbox" id="fData"> Carries data</label>
+          <label class="chip"><input type="checkbox" id="fFlagged"> Personal info</label>
+          <span id="groupChip"></span>
+        </div>
+      </div>
+      <div id="rows" class="rows"></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <button id="exportBtn" class="link" type="button">Export JSON</button>
+    <button id="clearBtn" class="link" type="button">Clear</button>
+    <span class="spacer"></span>
+    <span class="local">Runs only on your computer</span>
+  </footer>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>
