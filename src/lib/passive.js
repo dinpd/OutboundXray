@@ -4,7 +4,7 @@
 // toolbar count and colour describe.
 
 import { classify } from './trackers.js';
-import { hostOf } from './domains.js';
+import { hostOf, registrableDomain } from './domains.js';
 import { analyzeRequest, buildHaystack, matchTyped } from './analyze.js';
 import { PERSONAL } from './summary.js';
 
@@ -63,4 +63,11 @@ export function passiveEntry({ id, url, method, type, ts, bodyText = '', size = 
 // a phone number or a hashed contact): the case worth a notification.
 export function carriesPersonalInfo(entry) {
   return entry.party === 'third' && entry.findings.some((f) => PERSONAL.includes(f.kind));
+}
+
+// True when a tab's address moved to a different site (not just another page
+// of the same site, as single-page apps do), so the background view restarts.
+export function isNewSite(prevUrl, url) {
+  const prev = registrableDomain(hostOf(prevUrl || ''));
+  return !prev || prev !== registrableDomain(hostOf(url));
 }

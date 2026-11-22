@@ -7,7 +7,7 @@
 // State is kept in memory and mirrored to chrome.storage.session (memory-only,
 // cleared when Chrome quits) so it survives the service worker going to sleep.
 
-import { passiveEntry, formDataText, carriesPersonalInfo, MAX_PASSIVE_ENTRIES } from './lib/passive.js';
+import { passiveEntry, formDataText, carriesPersonalInfo, isNewSite, MAX_PASSIVE_ENTRIES } from './lib/passive.js';
 import { concatBytes, decodeBytes, matchTyped, mergeTypedFindings, newTypedValue, MAX_TYPED, MAX_INTERACTIONS } from './lib/analyze.js';
 import { summarize } from './lib/summary.js';
 
@@ -84,6 +84,35 @@ export function createAutoWatch({ isScanning, onChange, log }) {
     }).catch((e) => log('[OX-AUTO] notification failed', e.message));
   }
 
+  // A new page in this tab starts a fresh picture (typed values carry over,
+  // so "thank you" pages that send your email after a form are still caught).
+  async function startPage(tabId, url) {
+    const prev = tabs.get(tabId) || await getTab(tabId);
+    const t = newTab(url);
+    t.typed = prev.typed;
+    tabs.set(tabId, t);
+    chrome.notifications.clear(notificationId(tabId)).catch(() => {});
+    changed(tabId);
+  }
+
+  // The tab's address changed (chrome.tabs.onUpdated). Pages restored from the
+  // back/forward cache or preloaded while you typed in the address bar arrive
+  // without a main_frame request, so this is the backstop that keeps the page
+  // address right. Moving within the same site (single-page apps) keeps the data.
+  async function onTabUrl(tabId, url) {
+    await ready;
+    if (!enabled || isScanning(tabId) || !/^https?:/i.test(url)) return;
+    const t = tabs.get(tabId) || await getTab(tabId);
+    if (t.pageUrl === url) return;
+    if (isNewSite(t.pageUrl, url)) {
+      log('[OX-AUTO] page changed without a main_frame request', t.pageUrl, '->', url);
+      await startPage(tabId, url);
+    } else {
+      t.pageUrl = url;
+      changed(tabId);
+    }
+  }
+
   async function onBeforeRequest(details) {
     await ready;
     if (!enabled || details.tabId < 0 || isScanning(details.tabId)) return;
@@ -91,14 +120,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
     if (!/^https?:/i.test(url)) return;
 
     if (details.type === 'main_frame') {
-      // A new page in this tab starts a fresh picture (typed values carry over,
-      // so "thank you" pages that send your email after a form are still caught).
-      const prev = tabs.get(tabId) || await getTab(tabId);
-      const t = newTab(url);
-      t.typed = prev.typed;
-      tabs.set(tabId, t);
-      chrome.notifications.clear(notificationId(tabId)).catch(() => {});
-      changed(tabId);
+      await startPage(tabId, url);
       return;
     }
 
@@ -192,6 +214,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
     isEnabled: () => enabled,
     setEnabled,
     onBeforeRequest,
+    onTabUrl,
     onTyped,
     onInteraction,
     stateFor,

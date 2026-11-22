@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { passiveEntry, formDataText, carriesPersonalInfo } from '../src/lib/passive.js';
+import { passiveEntry, formDataText, carriesPersonalInfo, isNewSite } from '../src/lib/passive.js';
 import { buildNeedles } from '../src/lib/analyze.js';
 import { summarize } from '../src/lib/summary.js';
 
@@ -39,4 +39,11 @@ test('what you typed, hashed, going to another company is personal info', async 
 test('form bodies are flattened like a query string', () => {
   assert.equal(formDataText({ a: ['1', '2'], b: ['x y'] }), 'a=1&a=2&b=x+y');
   assert.equal(formDataText(undefined), '');
+});
+
+test('moving to another site restarts the background view; moving within a site does not', () => {
+  assert.equal(isNewSite('https://www.facebook.com/', 'https://finp4l.com/'), true); // the stale-page bug
+  assert.equal(isNewSite('https://www.facebook.com/', 'https://www.facebook.com/groups/123'), false);
+  assert.equal(isNewSite('https://shop.co.uk/a', 'https://checkout.shop.co.uk/b'), false);
+  assert.equal(isNewSite('', 'https://finp4l.com/'), true);
 });

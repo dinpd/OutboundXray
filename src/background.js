@@ -573,6 +573,12 @@ chrome.webRequest.onBeforeRequest.addListener((details) => {
   auto.onBeforeRequest(details).catch((e) => log('[OX-AUTO] request error', e.message));
 }, { urls: ['<all_urls>'] }, ['requestBody']);
 
+// Backstop for page changes that send no main_frame request (back/forward cache,
+// address-bar preloading).
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.url) auto.onTabUrl(tabId, info.url).catch((e) => log('[OX-AUTO] tab url error', e.message));
+});
+
 chrome.notifications.onClicked.addListener(async (id) => {
   const tabId = tabIdOfNotification(id);
   chrome.notifications.clear(id).catch(() => {});
