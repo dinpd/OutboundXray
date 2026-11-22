@@ -8,14 +8,15 @@
 // cleared when Chrome quits) so it survives the service worker going to sleep.
 
 import { passiveEntry, formDataText, carriesPersonalInfo, MAX_PASSIVE_ENTRIES } from './lib/passive.js';
-import { buildNeedles, decodeBytes, matchTyped, mergeTypedFindings } from './lib/analyze.js';
+import { concatBytes, decodeBytes, matchTyped, mergeTypedFindings, newTypedValue, MAX_TYPED, MAX_INTERACTIONS } from './lib/analyze.js';
 import { summarize } from './lib/summary.js';
 
 const SETTING = 'autoWatch';
 const SAVE_DELAY_MS = 2000;
-const MAX_TYPED = 30;
-const MAX_INTERACTIONS = 200;
 const storageKey = (tabId) => `auto:${tabId}`;
+const NOTIFICATION_PREFIX = 'outboundxray-';
+export const notificationId = (tabId) => `${NOTIFICATION_PREFIX}${tabId}`;
+export const tabIdOfNotification = (id) => Number(id.replace(NOTIFICATION_PREFIX, ''));
 
 // `isScanning(tabId)`: a full scan owns that tab, so stay out of its way.
 // `onChange(tabId)`: push fresh state to the panel and the toolbar badge.
@@ -73,7 +74,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
     t.notified = true;
     const summary = summarize({ pageUrl: t.pageUrl, entries: t.entries });
     const alert = summary.alerts.find((a) => a.severity === 'high');
-    chrome.notifications.create(`outboundxray-${tabId}`, {
+    chrome.notifications.create(notificationId(tabId), {
       type: 'basic',
       iconUrl: chrome.runtime.getURL('icons/icon128.png'),
       title: 'Personal information left this page',
@@ -96,7 +97,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
       const t = newTab(url);
       t.typed = prev.typed;
       tabs.set(tabId, t);
-      chrome.notifications.clear(`outboundxray-${tabId}`).catch(() => {});
+      chrome.notifications.clear(notificationId(tabId)).catch(() => {});
       changed(tabId);
       return;
     }
@@ -108,10 +109,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
       bodyText = formDataText(body.formData);
       size = bodyText.length;
     } else if (body?.raw?.length) {
-      const parts = body.raw.filter((p) => p.bytes).map((p) => new Uint8Array(p.bytes));
-      const bytes = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-      let offset = 0;
-      for (const p of parts) { bytes.set(p, offset); offset += p.length; }
+      const bytes = concatBytes(body.raw.filter((p) => p.bytes).map((p) => new Uint8Array(p.bytes)));
       size = bytes.length;
       if (size) bodyText = (await decodeBytes(bytes).catch(() => null))?.text || '';
     }
@@ -132,10 +130,9 @@ export function createAutoWatch({ isScanning, onChange, log }) {
   async function onTyped(tabId, msg) {
     await ready;
     if (!enabled) return;
-    const value = String(msg.value || '').trim();
     const t = await getTab(tabId);
-    if (value.length < 4 || value.length > 200 || t.typed.some((x) => x.value === value)) return;
-    const typed = { value, field: String(msg.field || 'a text field').slice(0, 60), at: Date.now(), needles: await buildNeedles(value) };
+    const typed = await newTypedValue(msg, t.typed);
+    if (!typed) return;
     t.typed.push(typed);
     if (t.typed.length > MAX_TYPED) t.typed.shift();
     // Keystroke recorders often send before we hear about the value: re-check what already left.
@@ -164,7 +161,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
       for (const key of Object.keys(all)) if (key.startsWith('auto:')) known.add(Number(key.slice(5)));
       for (const tabId of known) {
         forget(tabId);
-        chrome.notifications.clear(`outboundxray-${tabId}`).catch(() => {});
+        chrome.notifications.clear(notificationId(tabId)).catch(() => {});
         onChange(tabId);
       }
     }

@@ -10,21 +10,20 @@
 // every other tab, built from chrome.webRequest instead.
 
 import { classify } from './lib/trackers.js';
-import { createAutoWatch } from './autowatch.js';
+import { createAutoWatch, tabIdOfNotification } from './autowatch.js';
 import { hostOf } from './lib/domains.js';
 import { summarize } from './lib/summary.js';
 import {
-  analyzeRequest, buildHaystack, buildNeedles, decodeBody, decodeBytes,
-  extractFields, matchTyped, mergeTypedFindings,
+  analyzeRequest, buildHaystack, decodeBody, decodeBytes,
+  extractFields, matchTyped, mergeTypedFindings, newTypedValue, MAX_TYPED, MAX_INTERACTIONS,
 } from './lib/analyze.js';
+import { clipUrl } from './lib/passive.js';
 
 const DEBUG = false; // flip to true and filter the worker console by [OutboundXray]
 const log = (...args) => { if (DEBUG) console.log('[OutboundXray]', ...args); };
 
 const PROTOCOL_VERSION = '1.3';
 const MAX_ENTRIES = 1000;
-const MAX_TYPED = 30;
-const MAX_INTERACTIONS = 200;
 const MAX_WS_FRAMES = 50;
 const MAX_PENDING_EXTRA = 500;
 const PUSH_DELAY_MS = 300;
@@ -369,9 +368,8 @@ async function restoreWatchedTabs() {
 async function onTyped(tabId, msg) {
   const st = tabs.get(tabId);
   if (!st?.watching) return;
-  const value = String(msg.value || '').trim();
-  if (value.length < 4 || value.length > 200 || st.typed.some((t) => t.value === value)) return;
-  const typed = { value, field: String(msg.field || 'a text field').slice(0, 60), at: Date.now(), needles: await buildNeedles(value) };
+  const typed = await newTypedValue(msg, st.typed);
+  if (!typed) return;
   st.typed.push(typed);
   if (st.typed.length > MAX_TYPED) st.typed.shift();
   // Check requests that already left: keystroke recorders often send before we hear about the value.
@@ -407,7 +405,7 @@ function lightEntry(e) {
   return {
     id: e.id,
     ts: e.ts,
-    url: e.url.length > 400 ? `${e.url.slice(0, 400)}…` : e.url,
+    url: clipUrl(e.url),
     method: e.method,
     type: e.type,
     host: e.host,
@@ -576,7 +574,7 @@ chrome.webRequest.onBeforeRequest.addListener((details) => {
 }, { urls: ['<all_urls>'] }, ['requestBody']);
 
 chrome.notifications.onClicked.addListener(async (id) => {
-  const tabId = Number(id.replace('outboundxray-', ''));
+  const tabId = tabIdOfNotification(id);
   chrome.notifications.clear(id).catch(() => {});
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) return;

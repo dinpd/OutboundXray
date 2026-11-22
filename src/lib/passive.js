@@ -13,6 +13,8 @@ export const MAX_PASSIVE_ENTRIES = 300;
 const MAX_HAYSTACK_CHARS = 32 * 1024;
 const MAX_URL_CHARS = 400;
 
+export const clipUrl = (url) => (url.length > MAX_URL_CHARS ? `${url.slice(0, MAX_URL_CHARS)}…` : url);
+
 // chrome.webRequest gives form posts as { name: [values] }.
 export function formDataText(formData) {
   const params = new URLSearchParams();
@@ -41,7 +43,7 @@ export function passiveEntry({ id, url, method, type, ts, bodyText = '', size = 
     entry: {
       id: String(id),
       ts,
-      url: url.length > MAX_URL_CHARS ? `${url.slice(0, MAX_URL_CHARS)}…` : url,
+      url: clipUrl(url),
       method,
       type,
       host,
