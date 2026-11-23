@@ -151,7 +151,34 @@ function typedSentence(name, t) {
     (t.beforeSubmit ? ', before you pressed any button.' : '.');
 }
 
-// `state`: { pageUrl, entries: [{ party, owner, company, site, host, category, size, findings }] }
+// The page's grade, A (private) to F. Personal information reaching another
+// company fails it outright; otherwise each other company costs points by what
+// it is, and the total picks the letter. `color` is shared by the panel and the toolbar badge.
+const GRADE_POINTS = { replay: 20, profiling: 10, tracking: 5, technical: 1 };
+const GRADE_BANDS = [[4, 'A'], [14, 'B'], [39, 'C'], [Infinity, 'D']];
+export const GRADES = {
+  A: { color: '#188038', level: 'low', text: (companies) => (companies ? 'Light: only technical services' : 'Only talks to the site itself') },
+  B: { color: '#4d7c0f', level: 'low', text: () => 'Some tracking' },
+  C: { color: '#b45309', level: 'medium', text: () => 'Tracked' },
+  D: { color: '#c2410c', level: 'medium', text: () => 'Heavily tracked' },
+  F: { color: '#d93025', level: 'high', text: () => 'Personal information left this page' },
+};
+
+function companyPoints(g) {
+  if (g.category === 'replay') return GRADE_POINTS.replay;
+  if (PROFILING_CATEGORIES.has(g.category)) return GRADE_POINTS.profiling;
+  if (TRACKING.some((k) => g.kinds.includes(k))) return GRADE_POINTS.tracking;
+  return GRADE_POINTS.technical;
+}
+
+function gradeOf(third, site) {
+  if (third.some((g) => g.severity === 'high')) return 'F';
+  const points = third.reduce((sum, g) => sum + companyPoints(g), 0) +
+    (site?.typed.some((t) => t.beforeSubmit) ? GRADE_POINTS.tracking : 0);
+  return GRADE_BANDS.find(([max]) => points <= max)[1];
+}
+
+// `state`: { pageUrl, passive?, fromStart?, entries: [{ party, owner, company, site, host, category, size, findings }] }
 export function summarize(state) {
   const entries = state?.entries || [];
   let siteName = 'This site';
@@ -221,25 +248,27 @@ export function summarize(state) {
     });
   }
 
-  const highCount = alerts.filter((a) => a.severity === 'high').length;
-  const profilers = third.filter((g) => PROFILING_CATEGORIES.has(g.category)).length;
-  let verdict;
-  if (!entries.length) verdict = { level: 'none', text: 'Nothing sent yet' };
-  else if (highCount) verdict = { level: 'high', text: 'Personal information left this page' };
-  else if (profilers >= 4) verdict = { level: 'medium', text: 'Heavily tracked' };
-  else if (profilers >= 1) verdict = { level: 'medium', text: 'Some tracking' };
-  else if (third.length) verdict = { level: 'low', text: 'Light: mostly technical services' };
-  else verdict = { level: 'low', text: 'Only talks to the site itself' };
+  const grade = gradeOf(third, site);
+  // A grade needs the whole page load; personal information reaching another
+  // company fails it whatever came before.
+  const passive = !!state?.passive;
+  const graded = (entries.length > 0 || passive) && (!!state?.fromStart || grade === 'F');
+  const verdict = graded
+    ? { level: GRADES[grade].level, text: GRADES[grade].text(third.length) }
+    : { level: 'none', text: entries.length || passive ? 'Not graded: reload the page to check it from the start' : 'Nothing sent yet' };
 
-  const headline = !entries.length
-    ? 'Nothing has been sent yet. Use the page as normal and OutboundXray will show what leaves it.'
-    : third.length
-      ? `This page shared information about your visit with ${plural(third.length, 'other company', 'other companies')}.`
-      : `So far, this page has only talked to ${siteName} itself.`;
+  const headline = third.length
+    ? `This page shared information about your visit with ${plural(third.length, 'other company', 'other companies')}.`
+    : passive
+      ? (graded ? 'No other company received data from this page.' : 'No other company has received data from this page so far.')
+      : entries.length
+        ? `So far, this page has only talked to ${siteName} itself.`
+        : 'Nothing has been sent yet. Use the page as normal and OutboundXray will show what leaves it.';
 
   return {
     siteName,
     headline,
+    grade: graded ? grade : null,
     verdict,
     alerts,
     overview: overviewOf(list, siteName),

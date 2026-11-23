@@ -12,7 +12,7 @@
 import { classify } from './lib/trackers.js';
 import { createAutoWatch, tabIdOfNotification } from './autowatch.js';
 import { hostOf } from './lib/domains.js';
-import { summarize } from './lib/summary.js';
+import { summarize, GRADES } from './lib/summary.js';
 import {
   analyzeRequest, buildHaystack, decodeBody, decodeBytes,
   extractFields, matchTyped, mergeTypedFindings, newTypedValue, MAX_TYPED, MAX_INTERACTIONS,
@@ -44,6 +44,7 @@ function newTabState(tabId, pageUrl = '') {
     watching: false,
     pageUrl,
     startedAt: Date.now(),
+    fromStart: false,        // saw this page load, so the grade covers all of it
     mainFrameId: null,
     entries: [],
     byKey: new Map(),        // sessionId+requestId -> latest entry
@@ -59,7 +60,7 @@ function newTabState(tabId, pageUrl = '') {
   };
 }
 
-function resetPage(st, url) {
+function resetPage(st, url, fromStart) {
   st.entries = [];
   st.byKey.clear();
   st.pendingExtra.clear();
@@ -68,6 +69,7 @@ function resetPage(st, url) {
   for (const socket of st.sockets.values()) socket.entry = null;
   st.pageUrl = url;
   st.startedAt = Date.now();
+  st.fromStart = fromStart;
   st.dropped = 0;
   st.notice = null;
 }
@@ -135,7 +137,7 @@ async function onRequest(st, sid, p) {
     const prev = st.byKey.get(key);
     if (prev) prev.status = p.redirectResponse.status;
   } else if (!sid && p.type === 'Document' && p.frameId === st.mainFrameId) {
-    resetPage(st, request.url); // a new page loaded in this tab
+    resetPage(st, request.url, true); // a new page loaded in this tab
   }
 
   const entry = makeEntry(st, sid, key, {
@@ -431,6 +433,7 @@ function lightState(tabId) {
     watching: st.watching,
     pageUrl: st.pageUrl,
     startedAt: st.startedAt,
+    fromStart: st.fromStart,
     notice: st.notice,
     error: st.error,
     dropped: st.dropped,
@@ -473,18 +476,11 @@ function markDirty(st) {
   pushTab(st.tabId);
 }
 
-const BADGE_COLORS = { high: '#d93025', medium: '#e37400', low: '#5f6368', none: '#5f6368' };
-
-// Scanning: number of other companies, coloured by the verdict. Background
-// watch: the same, but no badge until some other company has received data.
+// The page's letter grade, in its colour; no badge until the page can be graded.
 function updateBadge(tabId, state) {
-  const summary = (state.watching || state.passive) ? summarize(state) : null;
-  if (!summary || (state.passive && !summary.totals.companies)) {
-    chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
-    return;
-  }
-  chrome.action.setBadgeText({ tabId, text: String(summary.totals.companies) }).catch(() => {});
-  chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_COLORS[summary.verdict.level] }).catch(() => {});
+  const grade = (state.watching || state.passive) ? summarize(state).grade : null;
+  chrome.action.setBadgeText({ tabId, text: grade || '' }).catch(() => {});
+  if (grade) chrome.action.setBadgeBackgroundColor({ tabId, color: GRADES[grade].color }).catch(() => {});
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -509,7 +505,7 @@ chrome.runtime.onConnect.addListener((port) => {
         await stopWatching(msg.tabId);
         break;
       case 'clear':
-        if (st) { resetPage(st, st.pageUrl); markDirty(st); } else { auto.forget(msg.tabId); pushTab(msg.tabId); }
+        if (st) { resetPage(st, st.pageUrl, false); markDirty(st); } else { auto.forget(msg.tabId); pushTab(msg.tabId); }
         break;
       case 'detail': {
         const entry = st?.entries.find((e) => e.id === msg.id);
