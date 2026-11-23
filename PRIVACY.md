@@ -13,9 +13,9 @@ Only while you are scanning a tab (you start and stop it yourself):
 - **The requests that tab sends**: addresses, headers, cookie names and request bodies, so it can show you what was sent and to whom.
 - **Text you type into that tab's fields**, so it can tell you if that text (or a hashed copy of it) is sent somewhere. Password fields, one-time-code fields and payment-card fields are never read.
 
-**Background watch** is off unless you turn it on. While it is on, for every tab:
+**Background watch** is on by default, and you can turn it off at the bottom of the side panel. While it is on, for every tab:
 
-- **Requests sent to other companies**: their addresses and request bodies, so the toolbar icon can show how many companies the page talks to. Requests to the site itself are not kept. Cookies, headers, responses and live-connection messages are not read.
+- **Requests sent to other companies**: their addresses and request bodies, so the toolbar icon can show the page's grade. Requests to the site itself are not kept. Cookies, headers, responses and live-connection messages are not read.
 - **Text you type into fields**, with the same exceptions as above, so it can warn you (with a notification) if that text, an email address or a phone number is sent to another company.
 
 ## Where it is kept
@@ -29,7 +29,7 @@ In the extension's memory only. Typed text is discarded as soon as you stop scan
 | Permission | Why |
 |---|---|
 | `debugger` | Read full outgoing requests, including bodies, WebSocket messages and requests from embedded frames, for the tab you scan |
-| `<all_urls>` host access | Run the typed-text watcher on the pages you scan, and read tab addresses |
+| `<all_urls>` host access | Run the typed-text watcher on the pages you scan, and on every page while background watch is on, and read tab addresses |
 | `sidePanel` | Show the results next to the page |
 | `storage` | Remember which tabs are being scanned if Chrome restarts the extension, and whether background watch is on |
 | `webRequest` | Background watch only: see the addresses and bodies of requests pages send to other companies, without the debugging bar |

@@ -11,7 +11,7 @@ import { passiveEntry, formDataText, carriesPersonalInfo, isNewSite, MAX_PASSIVE
 import { concatBytes, decodeBytes, matchTyped, mergeTypedFindings, newTypedValue, MAX_TYPED, MAX_INTERACTIONS } from './lib/analyze.js';
 import { summarize } from './lib/summary.js';
 
-const SETTING = 'autoWatch';
+const SETTING = 'autoWatch'; // on unless the user has turned it off
 const SAVE_DELAY_MS = 2000;
 const storageKey = (tabId) => `auto:${tabId}`;
 const NOTIFICATION_PREFIX = 'outboundxray-';
@@ -26,7 +26,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
   const saveTimers = new Map();
 
   const ready = chrome.storage.local.get(SETTING)
-    .then((s) => { enabled = !!s[SETTING]; })
+    .then((s) => { enabled = s[SETTING] !== false; })
     .catch(() => {});
 
   // fromStart: this tab's page load was seen, so the grade covers all of it.
