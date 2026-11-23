@@ -9,5 +9,5 @@
     "icons": "python3 scripts/make-icons.py",
     "package": "rm -f outboundxray.zip && zip -r outboundxray.zip manifest.json src sidepanel icons -x '*.DS_Store'"
   },
-  "license": "MIT"
+  "license": "GPL-3.0-or-later"
 }
