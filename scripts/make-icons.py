@@ -10,6 +10,7 @@ import math
 import os
 import struct
 import zlib
+from functools import partial
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "icons")
 SS = 8  # supersampling factor for anti-aliasing
@@ -24,6 +25,7 @@ CORNER_RADIUS = 28 * U
 CENTRE = (0.5, 0.5)
 ENDS = [(31 * U, 31 * U), (97 * U, 31 * U), (31 * U, 97 * U), (97 * U, 97 * U)]
 LINE_HALF_WIDTH = 5.5 * U
+SMALL_LINE_SCALE = 1.4  # thicker lines at 16 px
 RING_RADIUS, RING_HALF_WIDTH = 11 * U, 3.5 * U
 CORE_RADIUS = 15 * U
 
@@ -55,7 +57,7 @@ def shade(x, y, small=False):
             return (*LINE, 255)
         if d < RING_RADIUS:
             return (*background(x, y), 255)  # the ring's hollow middle
-    half_width = LINE_HALF_WIDTH * (1.4 if small else 1)
+    half_width = LINE_HALF_WIDTH * (SMALL_LINE_SCALE if small else 1)
     if any(segment_distance(x, y, CENTRE, end) <= half_width for end in ENDS):
         return (*LINE, 255)
     return (*background(x, y), 255)
@@ -104,7 +106,7 @@ def png(size, raw):
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
-    for size, draw in ((16, lambda x, y: shade(x, y, small=True)), (32, shade), (48, shade), (128, padded(16 / 128))):
+    for size, draw in ((16, partial(shade, small=True)), (32, shade), (48, shade), (128, padded(16 / 128))):
         with open(os.path.join(OUT, f"icon{size}.png"), "wb") as f:
             f.write(png(size, render(size, draw)))
     print("icons written to", os.path.abspath(OUT))
