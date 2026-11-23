@@ -144,6 +144,21 @@ main { flex: 1; padding: 12px 14px 20px; }
 .lvl-medium { background: var(--medium-bg); color: var(--medium); }
 .lvl-low, .lvl-none { background: var(--low-bg); color: var(--low); }
 
+.score { display: flex; gap: 14px; align-items: flex-start; }
+.grade {
+  flex: none;
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--low);
+}
+.grade.ungraded { background: var(--surface-2); color: var(--muted); }
+
 .headline { font-size: 16px; font-weight: 600; margin: 0 0 6px; line-height: 1.35; }
 .stats { color: var(--muted); font-size: 12px; }
 

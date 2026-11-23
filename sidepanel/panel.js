@@ -1,4 +1,4 @@
-import { summarize, KINDS, PERSONAL, TRACKING, plural, groupKey } from '../src/lib/summary.js';
+import { summarize, GRADES, KINDS, PERSONAL, TRACKING, plural, groupKey } from '../src/lib/summary.js';
 import { CATEGORIES } from '../src/lib/trackers.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -120,7 +120,7 @@ function render() {
   const watching = !!state?.watching;
   const passive = !!state?.passive;
   const entries = state?.entries || [];
-  const summary = summarize({ pageUrl: tabUrl, entries });
+  const summary = summarize({ pageUrl: tabUrl, entries, passive, fromStart: !!state?.fromStart });
 
   $('#status').className = `status${watching ? ' on' : (passive ? ' bg' : '')}`;
   $('#status').innerHTML = `<span class="dot"></span>${watching ? 'Scanning' : (passive ? 'Background watch' : 'Not scanning')}`;
@@ -159,7 +159,7 @@ function renderIntro(restricted) {
     <div class="note"><strong>About the bar at the top of Chrome:</strong> while scanning, Chrome shows “OutboundXray started debugging this browser”. That is expected; it is how OutboundXray can read the data. Everything stays on your computer. Click <em>Stop</em> (or <em>Cancel</em> on that bar) to end the scan.</div>
     <div class="center"><button class="link" data-act="start-noreload">Start without reloading</button></div>
     ${state?.passive
-      ? '<div class="note">Background watch is on, but no other company has received data from this page yet. Reload the page to check it from the start.</div>'
+      ? '<div class="note">Background watch started after this page loaded, so it can’t grade it yet. Reload the page to check it from the start.</div>'
       : '<div class="note">Turn on <strong>Background watch</strong> (bottom of this panel) to check every tab automatically: the toolbar icon shows how many companies each page talks to, and you get a notification if personal information leaves a page.</div>'}
   </div>`;
 }
@@ -171,7 +171,7 @@ function renderPassiveNote() {
 
 function renderSummary(summary, watching, restricted) {
   const entries = state?.entries || [];
-  if (!watching && !entries.length) return renderMessages() + renderIntro(restricted);
+  if (!watching && !entries.length && !summary.grade) return renderMessages() + renderIntro(restricted);
 
   const level = summary.verdict.level;
   const typedNote = (watching || state.passive) && state.typedFields?.length
@@ -182,10 +182,13 @@ function renderSummary(summary, watching, restricted) {
     ? `${plural(summary.totals.thirdPartyRequests, 'request')} to other companies`
     : `${summary.totals.requests} pieces of data sent · ${summary.totals.thirdPartyRequests} to other companies`;
   let html = renderMessages() + (state.passive ? renderPassiveNote() : '') + `
-    <div class="card">
-      <span class="verdict lvl-${level}">${esc(summary.verdict.text)}</span>
-      <p class="headline">${esc(summary.headline)}</p>
-      <div class="stats">${stats}${typedNote}</div>
+    <div class="card score">
+      <div class="grade${summary.grade ? '' : ' ungraded'}"${summary.grade ? ` style="background:${GRADES[summary.grade].color}"` : ''} title="Privacy grade, A (private) to F">${summary.grade || '?'}</div>
+      <div>
+        <span class="verdict lvl-${level}">${esc(summary.verdict.text)}</span>
+        <p class="headline">${esc(summary.headline)}</p>
+        <div class="stats">${stats}${typedNote}</div>
+      </div>
     </div>`;
 
   if (summary.alerts.length) {

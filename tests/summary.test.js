@@ -55,11 +55,42 @@ test('a field leaked both raw and hashed is described once, with both forms', ()
   assert.deepEqual(s.alerts.map((a) => a.text), ['rec.io received what you typed into “Email” (as typed, and scrambled into a code that still identifies it), before you pressed any button.']);
 });
 
-test('a site that only talks to itself reads as light', () => {
-  const s = summarize({ pageUrl: 'https://shop.com/', entries: [entry({}), entry({})] });
+test('a site that only talks to itself reads as light, with grade A', () => {
+  const s = summarize({ pageUrl: 'https://shop.com/', fromStart: true, entries: [entry({}), entry({})] });
   assert.equal(s.totals.companies, 0);
   assert.match(s.headline, /only talked to shop\.com itself/);
   assert.equal(s.verdict.level, 'low');
+  assert.equal(s.grade, 'A');
+});
+
+const company = (owner, category, findings = []) =>
+  entry({ host: `x.${owner}.com`, site: `${owner}.com`, party: 'third', owner, company: owner, category, findings });
+const gradeFor = (entries, more = {}) => summarize({ pageUrl: 'https://shop.com/', fromStart: true, entries, ...more }).grade;
+
+test('the grade weighs companies by what they are and what they got', () => {
+  const cdns = ['a', 'b', 'c', 'd'].map((n) => company(`cdn${n}`, 'cdn'));
+  assert.equal(gradeFor(cdns), 'A', 'up to four technical services');
+  assert.equal(gradeFor([...cdns, company('cdne', 'cdn')]), 'B');
+  assert.equal(gradeFor([company('ga', 'analytics', [{ kind: 'identifier' }])]), 'B', 'one company with an ID');
+  assert.equal(gradeFor([company('ads1', 'ads'), company('ads2', 'ads')]), 'C');
+  assert.equal(gradeFor([company('rec', 'replay')]), 'C', 'a session recorder');
+  assert.equal(gradeFor(['1', '2', '3', '4'].map((n) => company(`ads${n}`, 'ads'))), 'D');
+  assert.equal(gradeFor([company('fb', 'social', [{ kind: 'email', details: ['a@b.c'] }])]), 'F');
+});
+
+test('a background-watched page with no other companies gets A, said plainly', () => {
+  const s = summarize({ pageUrl: 'https://shop.com/', passive: true, fromStart: true, entries: [] });
+  assert.equal(s.grade, 'A');
+  assert.match(s.headline, /No other company received data/);
+});
+
+test('a page not watched from its load is not graded, unless personal info already left', () => {
+  const s = summarize({ pageUrl: 'https://shop.com/', passive: true, entries: [] });
+  assert.equal(s.grade, null);
+  assert.match(s.verdict.text, /reload/i);
+  assert.match(s.headline, /so far/);
+  assert.equal(gradeFor([company('ads1', 'ads')], { fromStart: false }), null);
+  assert.equal(gradeFor([company('fb', 'social', [{ kind: 'phone', details: ['tel'] }])], { fromStart: false }), 'F');
 });
 
 test('each kind of data says how many requests carried it and in which fields', () => {

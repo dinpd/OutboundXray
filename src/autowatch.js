@@ -29,8 +29,9 @@ export function createAutoWatch({ isScanning, onChange, log }) {
     .then((s) => { enabled = !!s[SETTING]; })
     .catch(() => {});
 
-  function newTab(pageUrl = '') {
-    return { pageUrl, entries: [], haystacks: new Map(), typed: [], interactions: [], seq: 0, notified: false };
+  // fromStart: this tab's page load was seen, so the grade covers all of it.
+  function newTab(pageUrl = '', fromStart = false) {
+    return { pageUrl, fromStart, entries: [], haystacks: new Map(), typed: [], interactions: [], seq: 0, notified: false };
   }
 
   async function getTab(tabId) {
@@ -86,9 +87,9 @@ export function createAutoWatch({ isScanning, onChange, log }) {
 
   // A new page in this tab starts a fresh picture (typed values carry over,
   // so "thank you" pages that send your email after a form are still caught).
-  async function startPage(tabId, url) {
+  async function startPage(tabId, url, fromStart) {
     const prev = tabs.get(tabId) || await getTab(tabId);
-    const t = newTab(url);
+    const t = newTab(url, fromStart);
     t.typed = prev.typed;
     tabs.set(tabId, t);
     chrome.notifications.clear(notificationId(tabId)).catch(() => {});
@@ -106,7 +107,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
     if (t.pageUrl === url) return;
     if (isNewSite(t.pageUrl, url)) {
       log('[OX-AUTO] page changed without a main_frame request', t.pageUrl, '->', url);
-      await startPage(tabId, url);
+      await startPage(tabId, url, false); // restored or preloaded: its requests weren't all seen
     } else {
       t.pageUrl = url;
       changed(tabId);
@@ -120,7 +121,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
     if (!/^https?:/i.test(url)) return;
 
     if (details.type === 'main_frame') {
-      await startPage(tabId, url);
+      await startPage(tabId, url, true);
       return;
     }
 
@@ -199,6 +200,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
       watching: false,
       passive: true,
       pageUrl: t.pageUrl,
+      fromStart: t.fromStart,
       typedFields: [...new Set(t.typed.map((x) => x.field))],
       entries: t.entries,
     };
