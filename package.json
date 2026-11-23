@@ -1,6 +1,6 @@
 {
   "name": "outboundxray",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Chrome extension: see, in plain language, what the page you're on sends about you, and to whom.",
   "type": "module",
