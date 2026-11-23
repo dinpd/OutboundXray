@@ -326,7 +326,7 @@ function stopLocally(st, notice) {
   st.typed = [];          // forget typed values as soon as watching stops
   st.interactions = [];
   st.notice = notice || null;
-  notifyContent(st.tabId, auto.isEnabled()); // background watch keeps listening if it's on
+  auto.ready.then(() => notifyContent(st.tabId, auto.isEnabled())); // background watch keeps listening if it's on
   saveWatchedTabs();
   markDirty(st);
 }
@@ -455,6 +455,7 @@ function fullEntry(e) {
 // The panel shows a tab's scan when it has one (running, or finished with
 // results), and otherwise the background-watch view when that is on.
 async function stateOf(tabId) {
+  await auto.ready; // the setting loads asynchronously, and it's on unless turned off
   const st = tabs.get(tabId);
   const hasScan = !!st && (st.watching || st.entries.length || st.error || st.notice);
   const state = (!hasScan && await auto.stateFor(tabId)) || lightState(tabId);
@@ -562,11 +563,13 @@ async function setAutoWatch(on) {
 
 // Registered at the top level so Chrome can wake this worker for it.
 chrome.webRequest.onBeforeRequest.addListener((details) => {
-  // A finished scan's results stay on screen until the tab moves to a new page.
-  if (details.type === 'main_frame' && details.tabId >= 0 && auto.isEnabled() && tabs.get(details.tabId) && !tabs.get(details.tabId).watching) {
-    tabs.delete(details.tabId);
-  }
-  auto.onBeforeRequest(details).catch((e) => log('[OX-AUTO] request error', e.message));
+  auto.ready.then(() => {
+    // A finished scan's results stay on screen until the tab moves to a new page.
+    if (details.type === 'main_frame' && details.tabId >= 0 && auto.isEnabled() && tabs.get(details.tabId) && !tabs.get(details.tabId).watching) {
+      tabs.delete(details.tabId);
+    }
+    return auto.onBeforeRequest(details);
+  }).catch((e) => log('[OX-AUTO] request error', e.message));
 }, { urls: ['<all_urls>'] }, ['requestBody']);
 
 // Backstop for page changes that send no main_frame request (back/forward cache,
