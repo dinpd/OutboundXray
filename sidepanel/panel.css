@@ -161,6 +161,7 @@ main { flex: 1; padding: 12px 14px 20px; }
 
 .headline { font-size: 16px; font-weight: 600; margin: 0 0 6px; line-height: 1.35; }
 .stats { color: var(--muted); font-size: 12px; }
+.own-ask { font-size: 12px; color: var(--muted); margin: 8px 0; }
 
 h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 18px 2px 8px; }
 

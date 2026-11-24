@@ -1,3 +1,4 @@
+import { withOwnDomains } from '../src/lib/ownership.js';
 import { summarize, GRADES, KINDS, PERSONAL, TRACKING, plural, groupKey } from '../src/lib/summary.js';
 import { CATEGORIES } from '../src/lib/trackers.js';
 
@@ -116,11 +117,16 @@ function hostname(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 }
 
+// The tab's requests, with the site's own other domains counted as the site (issue #1).
+function shownEntries() {
+  return withOwnDomains(state?.entries || [], tabUrl, state?.ownDomains);
+}
+
 function render() {
   const watching = !!state?.watching;
   const passive = !!state?.passive;
-  const entries = state?.entries || [];
-  const summary = summarize({ pageUrl: tabUrl, entries, passive, fromStart: !!state?.fromStart });
+  const entries = shownEntries();
+  const summary = summarize({ pageUrl: tabUrl, entries: state?.entries, passive, fromStart: !!state?.fromStart, ownDomains: state?.ownDomains });
 
   $('#status').className = `status${watching ? ' on' : (passive ? ' bg' : '')}`;
   $('#status').innerHTML = `<span class="dot"></span>${watching ? 'Scanning' : (passive ? 'Background watch' : 'Not scanning')}`;
@@ -170,7 +176,7 @@ function renderPassiveNote() {
 }
 
 function renderSummary(summary, watching, restricted) {
-  const entries = state?.entries || [];
+  const entries = shownEntries();
   if (!watching && !entries.length && !summary.grade) return renderMessages() + renderIntro(restricted);
 
   const level = summary.verdict.level;
@@ -249,9 +255,25 @@ function renderGroup(g) {
         <p>${esc(g.categoryPlain)}</p>
         <strong>What they received</strong>
         <ul class="received">${g.received.map(renderReceived).join('')}</ul>
+        ${renderOwnership(g)}
         <button class="link" data-act="show-group" data-group="${esc(g.key)}">See the ${requestsText(g.requests)} →</button>
       </div>
     </details>`;
+}
+
+// The site card lists the site's own other domains and why; an unrecognised
+// company's card offers to count it as the site (issue #1).
+function renderOwnership(g) {
+  const site = hostname(tabUrl);
+  if (g.party === 'first' && g.related.length) {
+    return '<strong>Its other domains</strong><ul class="received">' + g.related.map((r) => r.reason === 'marked'
+      ? `<li>${esc(r.site)}<small class="evidence">You said this is part of ${esc(site)} · <button class="link" data-act="own" data-domain="${esc(r.site)}" data-own="0">Undo</button></small></li>`
+      : `<li>${esc(r.site)}<small class="evidence">Probably part of ${esc(site)}: the name matches</small></li>`).join('') + '</ul>';
+  }
+  if (g.party === 'third' && g.category === 'unknown' && site) {
+    return `<p class="own-ask">If this is one of ${esc(site)}’s own services: <button class="link" data-act="own" data-domain="${esc(g.key)}" data-own="1">Count it as part of ${esc(site)}</button></p>`;
+  }
+  return '';
 }
 
 // -------------------------------------------------------------- details
@@ -274,7 +296,7 @@ function flagClass(kind) {
 }
 
 function renderDetails(summary) {
-  const entries = state?.entries || [];
+  const entries = shownEntries();
   const groupName = ui.filter.group && summary.groups.find((g) => g.key === ui.filter.group)?.name;
   $('#groupChip').innerHTML = groupName
     ? `<button class="chip active" data-act="clear-group">${esc(groupName)} ✕</button>`
@@ -327,9 +349,9 @@ function prettyBody(body) {
 function renderDetail(light) {
   const d = details.get(light.id);
   if (!d) return '<div class="detail">Loading…</div>';
-  const cat = CATEGORIES[d.category];
+  const cat = CATEGORIES[light.category]; // light has the site's own domains applied; d is the raw entry
   const plainFindings = d.findings.map((f) => KINDS[f.kind]?.label + (f.field ? ` (“${f.field}”${f.hash ? `, as ${f.hash} hash` : ''})` : '')).filter(Boolean);
-  const to = d.party === 'first' ? 'the website itself' : `${d.company}${d.owner && d.owner !== d.company ? ` (${d.owner})` : ''}`;
+  const to = light.party === 'first' ? 'the website itself' : `${light.company}${light.owner && light.owner !== light.company ? ` (${light.owner})` : ''}`;
 
   const flaggedKeys = new Set(d.findings.flatMap((f) => f.details || []));
   const fields = d.fields?.length
@@ -341,7 +363,7 @@ function renderDetail(light) {
 
   return `<div class="detail">
     <h4>In plain words</h4>
-    <p class="plain">Sent to <strong>${esc(to)}</strong>${cat ? ` · ${esc(cat.label)}` : ''}.
+    <p class="plain">Sent to <strong>${esc(to)}</strong>${cat && light.party !== 'first' ? ` · ${esc(cat.label)}` : ''}.
       ${plainFindings.length ? `It carried: ${esc(plainFindings.join('; '))}.` : 'Nothing identifying was spotted in it.'}</p>
     <h4>Address</h4>
     <pre class="code">${esc(d.url)}</pre>
@@ -374,6 +396,7 @@ document.addEventListener('click', (ev) => {
       window.scrollTo(0, 0);
       break;
     case 'clear-group': ui.filter.group = null; render(); break;
+    case 'own': post({ kind: 'setOwn', domain: el.dataset.domain, own: el.dataset.own === '1' }); break;
     case 'toggle-row': {
       const id = el.dataset.id;
       if (ui.openRows.has(id)) ui.openRows.delete(id);

@@ -20,7 +20,7 @@ export const tabIdOfNotification = (id) => Number(id.replace(NOTIFICATION_PREFIX
 
 // `isScanning(tabId)`: a full scan owns that tab, so stay out of its way.
 // `onChange(tabId)`: push fresh state to the panel and the toolbar badge.
-export function createAutoWatch({ isScanning, onChange, log }) {
+export function createAutoWatch({ isScanning, onChange, ownDomainsOf, log }) {
   let enabled = false;
   const tabs = new Map();      // tabId -> { pageUrl, entries, haystacks, typed, interactions, seq, notified }
   const saveTimers = new Map();
@@ -70,16 +70,18 @@ export function createAutoWatch({ isScanning, onChange, log }) {
   }
 
   // One notification per tab per page, the first time personal info leaves it.
-  function maybeNotify(tabId, t) {
+  // The site's own domains (issue #1) don't count as another company.
+  async function maybeNotify(tabId, t) {
     if (t.notified || !t.entries.some(carriesPersonalInfo)) return;
-    t.notified = true;
-    const summary = summarize({ pageUrl: t.pageUrl, entries: t.entries });
+    const summary = summarize({ pageUrl: t.pageUrl, entries: t.entries, ownDomains: await ownDomainsOf(t.pageUrl) });
     const alert = summary.alerts.find((a) => a.severity === 'high');
+    if (!alert || t.notified) return;
+    t.notified = true;
     chrome.notifications.create(notificationId(tabId), {
       type: 'basic',
       iconUrl: chrome.runtime.getURL('icons/icon128.png'),
       title: 'Personal information left this page',
-      message: alert?.text || `${summary.siteName} shared personal information with another company.`,
+      message: alert.text,
       contextMessage: summary.siteName,
       priority: 1,
     }).catch((e) => log('[OX-AUTO] notification failed', e.message));
@@ -146,7 +148,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
     t.entries.push(made.entry);
     t.haystacks.set(made.entry.id, made.haystack);
     if (t.entries.length > MAX_PASSIVE_ENTRIES) t.haystacks.delete(t.entries.shift().id);
-    maybeNotify(tabId, t);
+    maybeNotify(tabId, t).catch((e) => log('[OX-AUTO] notify error', e.message));
     changed(tabId);
   }
 
@@ -163,7 +165,7 @@ export function createAutoWatch({ isScanning, onChange, log }) {
       const hits = matchTyped(t.haystacks.get(entry.id), [typed], entry.ts, t.interactions);
       if (hits.length) entry.findings = mergeTypedFindings(entry.findings, hits);
     }
-    maybeNotify(tabId, t);
+    maybeNotify(tabId, t).catch((e) => log('[OX-AUTO] notify error', e.message));
     changed(tabId);
   }
 

@@ -18,6 +18,7 @@ import {
   extractFields, matchTyped, mergeTypedFindings, newTypedValue, MAX_TYPED, MAX_INTERACTIONS,
 } from './lib/analyze.js';
 import { clipUrl } from './lib/passive.js';
+import { siteOf } from './lib/ownership.js';
 
 const DEBUG = false; // flip to true and filter the worker console by [OutboundXray]
 const log = (...args) => { if (DEBUG) console.log('[OutboundXray]', ...args); };
@@ -455,11 +456,11 @@ function fullEntry(e) {
 // The panel shows a tab's scan when it has one (running, or finished with
 // results), and otherwise the background-watch view when that is on.
 async function stateOf(tabId) {
-  await auto.ready; // the setting loads asynchronously, and it's on unless turned off
+  await Promise.all([auto.ready, ownReady]); // both settings load asynchronously
   const st = tabs.get(tabId);
   const hasScan = !!st && (st.watching || st.entries.length || st.error || st.notice);
   const state = (!hasScan && await auto.stateFor(tabId)) || lightState(tabId);
-  return { ...state, autoWatch: auto.isEnabled() };
+  return { ...state, autoWatch: auto.isEnabled(), ownDomains: ownDomainsOf(state.pageUrl) };
 }
 
 const pushTimers = new Map(); // tabId -> pending push
@@ -495,6 +496,9 @@ chrome.runtime.onConnect.addListener((port) => {
       case 'subscribe':
         sub.tabId = msg.tabId;
         port.postMessage({ kind: 'state', tabId: msg.tabId, state: await stateOf(msg.tabId) });
+        break;
+      case 'setOwn':
+        await setOwnDomain(st?.pageUrl || (await stateOf(msg.tabId)).pageUrl, msg.domain, !!msg.own);
         break;
       case 'setAuto':
         await setAutoWatch(!!msg.on);
@@ -548,9 +552,30 @@ restoreWatchedTabs().catch((e) => log('restore failed', e));
 
 // ------------------------------------------------------- background watch
 
+// Domains the user said belong to a site (issue #1): { 'zillow.com': ['zg-api.com'] }.
+const OWN_KEY = 'ownDomains';
+let ownDomains = {};
+const ownReady = chrome.storage.local.get(OWN_KEY)
+  .then((s) => { ownDomains = s[OWN_KEY] || {}; })
+  .catch(() => {});
+const ownDomainsOf = (pageUrl) => ownDomains[siteOf(pageUrl)] || [];
+
+async function setOwnDomain(pageUrl, domain, own) {
+  await ownReady;
+  const site = siteOf(pageUrl);
+  if (!site || !domain) return;
+  const list = new Set(ownDomains[site] || []);
+  if (own) list.add(domain); else list.delete(domain);
+  if (list.size) ownDomains[site] = [...list]; else delete ownDomains[site];
+  await chrome.storage.local.set({ [OWN_KEY]: ownDomains });
+  log('[OX-OWN]', site, own ? 'owns' : 'does not own', domain);
+  for (const sub of panels) if (sub.tabId != null) pushTab(sub.tabId);
+}
+
 const auto = createAutoWatch({
   isScanning: (tabId) => !!tabs.get(tabId)?.watching,
   onChange: pushTab,
+  ownDomainsOf: async (pageUrl) => { await ownReady; return ownDomainsOf(pageUrl); },
   log,
 });
 

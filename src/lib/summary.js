@@ -3,6 +3,7 @@
 
 import { CATEGORIES } from './trackers.js';
 import { leafName } from './analyze.js';
+import { withOwnDomains } from './ownership.js';
 
 export const KINDS = {
   typed:         { rank: 10, short: 'typed text', label: 'Something you typed' },
@@ -57,6 +58,7 @@ function newGroup(key, entry, siteName) {
     bytes: 0,
     kinds: new Map(),
     typed: new Map(),
+    related: new Map(), // the site's own other domains -> why ('name' | 'marked')
   };
 }
 
@@ -178,9 +180,9 @@ function gradeOf(third, site) {
   return GRADE_BANDS.find(([max]) => points <= max)[1];
 }
 
-// `state`: { pageUrl, passive?, fromStart?, entries: [{ party, owner, company, site, host, category, size, findings }] }
+// `state`: { pageUrl, passive?, fromStart?, ownDomains? (domains the user said are the site's), entries: [{ party, owner, company, site, host, category, size, findings }] }
 export function summarize(state) {
-  const entries = state?.entries || [];
+  const entries = withOwnDomains(state?.entries || [], state?.pageUrl, state?.ownDomains);
   let siteName = 'This site';
   try { siteName = new URL(state.pageUrl).hostname.replace(/^www\./, ''); } catch { /* no page URL */ }
 
@@ -192,6 +194,7 @@ export function summarize(state) {
     g.requests++;
     g.bytes += e.size || 0;
     g.hosts.add(e.host);
+    if (e.ownReason) g.related.set(e.site, e.ownReason);
     if (e.company && e.company !== g.name && e.party === 'third') g.products.add(e.company);
     if (weight(e.category) > weight(g.category)) g.category = e.category;
     addFindings(g, e.findings || []);
@@ -212,6 +215,7 @@ export function summarize(state) {
     kindKeys: visibleKinds(g),
     kindRequests: Object.fromEntries([...g.kinds].map(([k, v]) => [k, v.requests])),
     typed: [...g.typed.values()],
+    related: [...g.related].map(([site, reason]) => ({ site, reason })),
     severity: severityOf(g),
     received: whatTheyGot(g),
   }));
