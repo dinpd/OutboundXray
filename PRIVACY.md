@@ -20,7 +20,7 @@ Only while you are scanning a tab (you start and stop it yourself):
 
 ## Where it is kept
 
-In the extension's memory only. Typed text is discarded as soon as you stop scanning or close the tab, and for background watch, when you close the tab or turn background watch off. Captured requests are kept for the open tab until you clear them, start a new scan, or close the tab. Background watch keeps at most the last 300 requests to other companies per tab, and forgets a tab's requests when it loads a new page. Nothing is written to disk, except two things. First, a list of which tab IDs are being scanned. Second, while background watch is on, each tab's background-watch data. Both are kept in Chrome's session storage, which lives in memory and is cleared when Chrome quits, so a restarted extension can carry on. Whether background watch is on is remembered as a single on/off setting.
+In the extension's memory only. Typed text is discarded as soon as you stop scanning or close the tab, and for background watch, when you close the tab or turn background watch off. Captured requests are kept for the open tab until you clear them, start a new scan, or close the tab. Background watch keeps at most the last 300 requests to other companies per tab, and forgets a tab's requests when it loads a new page. Nothing is written to disk, except two things. First, a list of which tab IDs are being scanned. Second, while background watch is on, each tab's background-watch data. Both are kept in Chrome's session storage, which lives in memory and is cleared when Chrome quits, so a restarted extension can carry on. Two choices of yours are saved on your computer until you change them or remove the extension: whether background watch is on, and the domains you have marked with “Count it as part of” a site. For each mark, only the two names are saved, such as zillow.com and zg-api.com. Click Undo next to a domain to remove its mark.
 
 **Export JSON** writes the captured requests to a file only when you click it.
 
@@ -31,7 +31,7 @@ In the extension's memory only. Typed text is discarded as soon as you stop scan
 | `debugger` | Read full outgoing requests, including bodies, WebSocket messages and requests from embedded frames, for the tab you scan |
 | `<all_urls>` host access | Run the typed-text watcher on the pages you scan, and on every page while background watch is on, and read tab addresses |
 | `sidePanel` | Show the results next to the page |
-| `storage` | Remember which tabs are being scanned if Chrome restarts the extension, and whether background watch is on |
+| `storage` | Remember which tabs are being scanned if Chrome restarts the extension, whether background watch is on, and which domains you marked as part of a site |
 | `webRequest` | Background watch only: see the addresses and bodies of requests pages send to other companies, without the debugging bar |
 | `notifications` | Background watch only: tell you when personal information leaves a page |
 
