@@ -31,7 +31,7 @@ export function passiveEntry({ id, url, method, type, ts, bodyText = '', size = 
   const host = hostOf(url);
   const pageHost = hostOf(pageUrl);
   if (!host || !pageHost) return null;
-  const who = classify(host, pageHost);
+  const who = classify(host, pageHost, { url, bodyText });
   if (who.party !== 'third') return null;
 
   const haystack = buildHaystack(url, bodyText);
