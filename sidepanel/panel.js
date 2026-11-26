@@ -255,10 +255,20 @@ function renderGroup(g) {
         <p>${esc(g.categoryPlain)}</p>
         <strong>What they received</strong>
         <ul class="received">${g.received.map(renderReceived).join('')}</ul>
+        ${renderProxied(g)}
         ${renderOwnership(g)}
         <button class="link" data-act="show-group" data-group="${esc(g.key)}">See the ${requestsText(g.requests)} →</button>
       </div>
     </details>`;
+}
+
+// A tracker sent through the site's own (or another unrecognised) domain, and
+// the fields that identified it (issue #18).
+function renderProxied(g) {
+  if (!g.proxied?.length) return '';
+  return '<strong>Sent in disguise</strong><ul class="received">' + g.proxied.map((p) => `
+    <li>${esc(p.product)}: ${esc(requestsText(p.requests))} sent through ${esc(p.viaSite ? `${p.via}, the site’s own server` : p.via)}
+      <small class="evidence">Recognised by ${esc(p.matched.join(', '))}</small></li>`).join('') + '</ul>';
 }
 
 // The site card lists the site's own other domains and why; an unrecognised
@@ -363,7 +373,7 @@ function renderDetail(light) {
 
   return `<div class="detail">
     <h4>In plain words</h4>
-    <p class="plain">Sent to <strong>${esc(to)}</strong>${cat && light.party !== 'first' ? ` · ${esc(cat.label)}` : ''}.
+    <p class="plain">Sent to <strong>${esc(to)}</strong>${light.proxy ? `, through ${esc(light.proxy.via)} (recognised by ${esc(light.proxy.matched.join(', '))})` : ''}${cat && light.party !== 'first' ? ` · ${esc(cat.label)}` : ''}.
       ${plainFindings.length ? `It carried: ${esc(plainFindings.join('; '))}.` : 'Nothing identifying was spotted in it.'}</p>
     <h4>Address</h4>
     <pre class="code">${esc(d.url)}</pre>

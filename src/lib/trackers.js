@@ -7,6 +7,7 @@
 // matches all of its subdomains.
 
 import { registrableDomain } from './domains.js';
+import { proxiedTracker } from './signatures.js';
 
 export const CATEGORIES = {
   site:      { label: 'The website itself', weight: 0, plain: 'The site you are visiting, or a company that owns it.' },
@@ -288,19 +289,24 @@ export function lookupCompany(host) {
 
 // Decides who a request goes to, relative to the page you are on.
 // "first" means the site itself, or a company that owns the site
-// (e.g. Google Analytics on youtube.com).
-export function classify(host, pageHost) {
+// (e.g. Google Analytics on youtube.com). With `request` ({ url, bodyText }),
+// a known tracker sent through an unrecognised domain, often the site's own,
+// counts as that tracker's company, with `proxy` saying how it was spotted.
+export function classify(host, pageHost, request) {
   const site = registrableDomain(host);
   const pageSite = registrableDomain(pageHost);
-  const company = lookupCompany(host);
   const pageCompany = lookupCompany(pageHost);
+  const sig = request && !lookupCompany(host) ? proxiedTracker(request.url, request.bodyText) : null;
+  const company = sig ? lookupCompany(sig.domain) : lookupCompany(host);
   const sameOwner = !!(company && pageCompany && company.owner === pageCompany.owner);
-  const first = site === pageSite || sameOwner;
+  // A tracker spotted by its signature counts as its company even on the site's own domain.
+  const first = sameOwner || (!sig && site === pageSite);
   return {
     site,
     party: first ? 'first' : 'third',
     company: company?.product || site,
     owner: company?.owner || site,
     category: first ? 'site' : (company?.category || 'unknown'),
+    ...(sig && !first ? { proxy: { via: site, viaSite: site === pageSite, matched: sig.matched } } : {}),
   };
 }

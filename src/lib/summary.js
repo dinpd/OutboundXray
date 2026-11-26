@@ -31,6 +31,8 @@ const CONTACT = ['email', 'phone', 'hashedContact'];
 const FIELD_KINDS = new Set(['identifier', 'cookie', 'siteCookie', 'location', 'page', 'activity', 'device', 'phone', 'hashedContact']);
 const MAX_FIELDS_SHOWN = 4;
 const IP_LINE = 'That you visited this site, plus your IP address (which reveals your rough location)';
+// Sent only through another server (issue #18): that server sees your IP address and may pass it on.
+const PROXIED_IP_LINE = 'That you visited this site. Your IP address went to the server in between, which may pass it on';
 const PROFILING_CATEGORIES = new Set(['ads', 'replay', 'social', 'marketing']);
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1, none: 0 };
 
@@ -44,6 +46,15 @@ function listNames(names, max = 3) {
 
 // Key of the company card a request belongs to (all first-party requests share one).
 export const groupKey = (e) => (e.party === 'first' ? '__site' : (e.owner || e.site || e.host));
+
+// Remembers which domain carried a tracker in disguise, and the fields that gave it away.
+function addProxy(g, e) {
+  const key = `${e.proxy.via}|${e.company}`;
+  let p = g.proxied.get(key);
+  if (!p) g.proxied.set(key, (p = { via: e.proxy.via, viaSite: e.proxy.viaSite, product: e.company, requests: 0, matched: new Set() }));
+  p.requests++;
+  for (const m of e.proxy.matched) if (p.matched.size < 4) p.matched.add(m);
+}
 
 function newGroup(key, entry, siteName) {
   const first = entry.party === 'first';
@@ -59,6 +70,7 @@ function newGroup(key, entry, siteName) {
     kinds: new Map(),
     typed: new Map(),
     related: new Map(), // the site's own other domains -> why ('name' | 'marked')
+    proxied: new Map(), // via domain -> { via, viaSite, product, requests, matched } (issue #18)
   };
 }
 
@@ -120,7 +132,10 @@ function whatTheyGot(group) {
     return { text: KINDS[k].label, requests, fields: [...fields].slice(0, MAX_FIELDS_SHOWN), moreFields: Math.max(0, fields.size - MAX_FIELDS_SHOWN) };
   });
   if (group.category === 'replay') items.unshift({ text: 'Possibly a recording of your visit' });
-  if (group.party === 'third') items.push({ text: IP_LINE });
+  if (group.party === 'third') {
+    const proxied = [...group.proxied.values()].reduce((n, p) => n + p.requests, 0);
+    items.push({ text: proxied === group.requests ? PROXIED_IP_LINE : IP_LINE });
+  }
   else if (group.party === 'first' && !items.length) items.push({ text: 'Requests for the page and its files, with nothing about you found in them' });
   return items;
 }
@@ -195,6 +210,7 @@ export function summarize(state) {
     g.bytes += e.size || 0;
     g.hosts.add(e.host);
     if (e.ownReason) g.related.set(e.site, e.ownReason);
+    if (e.proxy) addProxy(g, e);
     if (e.company && e.company !== g.name && e.party === 'third') g.products.add(e.company);
     if (weight(e.category) > weight(g.category)) g.category = e.category;
     addFindings(g, e.findings || []);
@@ -216,6 +232,7 @@ export function summarize(state) {
     kindRequests: Object.fromEntries([...g.kinds].map(([k, v]) => [k, v.requests])),
     typed: [...g.typed.values()],
     related: [...g.related].map(([site, reason]) => ({ site, reason })),
+    proxied: [...g.proxied.values()].map((p) => ({ ...p, matched: [...p.matched] })),
     severity: severityOf(g),
     received: whatTheyGot(g),
   }));

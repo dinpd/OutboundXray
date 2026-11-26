@@ -88,6 +88,9 @@ function addEntry(st, entry) {
 
 function analyzeEntry(st, entry) {
   const bodyText = entry.body?.text || '';
+  // Some proxied trackers are only recognisable by their body (issue #18).
+  const who = classify(entry.host, hostOf(st.pageUrl), { url: entry.url, bodyText });
+  if (who.proxy) Object.assign(entry, who);
   entry.haystack = buildHaystack(entry.url, bodyText);
   entry.findings = analyzeRequest(
     { url: entry.url, bodyText, haystack: entry.haystack, cookies: entry.cookies, party: entry.party },
@@ -112,7 +115,7 @@ function makeEntry(st, sid, key, { url, method, type, ts, headers, initiator }) 
     method,
     type,
     host: hostOf(url),
-    ...classify(hostOf(url), hostOf(st.pageUrl)),
+    ...classify(hostOf(url), hostOf(st.pageUrl), { url }),
     status: null,
     failed: null,
     headers: headers || {},
@@ -417,6 +420,7 @@ function lightEntry(e) {
     company: e.company,
     owner: e.owner,
     category: e.category,
+    proxy: e.proxy,
     status: e.status,
     failed: e.failed,
     size: e.body?.size || 0,
